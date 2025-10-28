@@ -13,9 +13,17 @@ const path = require('path');
 const regionsData = require('../../config/regions'); 
 
 
+const { PDFDocument } = require('pdf-lib'); // à ajouter en haut du fichier
+const fsPromises = require('fs').promises;
 
 
 
+const { Readable } = require('stream');
+const { LRUCache } = require('lru-cache');
+const cache = new LRUCache({
+  max: 200,            // up to 200 merged PDFs
+  ttl: 1000 * 60 * 60, // 1 hour TTL
+});
 
 router.get('/getsousbyid/:sousId', verifyToken, async (req, res) => {
   const userId = req.user.userId;
@@ -66,7 +74,7 @@ router.get('/getsousbyid/:sousId', verifyToken, async (req, res) => {
 //const BASE_UPLOAD_DIR = path.join(__dirname, 'uploads'); 
 
 const BASE_UPLOAD_DIR = 'D:\\uploads';
-
+/*
 router.get('/test-doc/:url', (req, res) => {
   console.log("url is ",BASE_UPLOAD_DIR);
   try {
@@ -108,6 +116,125 @@ router.get('/test-doc/:url', (req, res) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+*/
+
+
+
+
+// Helper: create a fresh Readable from a Buffer
+function readableFromBuffer(buffer) {
+  const stream = new Readable();
+  stream._read = () => {}; // no-op
+  stream.push(buffer);
+  stream.push(null);
+  return stream;
+}
+
+// Utility: safe resolve within base dir
+function safeResolve(baseDir, relativePath) {
+  const decoded = relativePath;
+  const resolved = path.resolve(baseDir, decoded);
+  if (!resolved.startsWith(baseDir)) {
+    throw new Error('Invalid path');
+  }
+  return resolved;
+}
+
+// Merge PDF files given an array of full file paths -> returns Buffer
+async function mergePdfsToBuffer(files) {
+  const mergedPdf = await PDFDocument.create();
+  for (const filePath of files) {
+    const bytes = await fs.promises.readFile(filePath);
+    const loaded = await PDFDocument.load(bytes);
+    const copied = await mergedPdf.copyPages(loaded, loaded.getPageIndices());
+    copied.forEach(p => mergedPdf.addPage(p));
+  }
+  const mergedBytes = await mergedPdf.save();
+  return Buffer.from(mergedBytes);
+}
+
+// Route: /test-doc/* -> prefix matching + merge matching files in same folder
+router.get('/test-doc/*', async (req, res) => {
+  try {
+    const decodedRelative = decodeURIComponent(req.params[0] || '');
+    const resolvedPath = safeResolve(BASE_UPLOAD_DIR, decodedRelative);
+
+    // ensure it points inside base dir
+    const folder = path.dirname(resolvedPath);
+    const baseFileName = path.basename(resolvedPath);
+    const prefix = baseFileName.replace(/\.pdf$/i, '');
+    const cacheKey = `${folder}/${prefix}`;
+
+    // Serve from LRU Buffer cache if available
+    if (cache.has(cacheKey)) {
+      const buffer = cache.get(cacheKey);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${prefix}_merged.pdf"`);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return readableFromBuffer(buffer).pipe(res);
+    }
+
+    // read folder, find matching pdfs starting with prefix
+    let filesInFolder;
+    try {
+      filesInFolder = await fs.promises.readdir(folder);
+    } catch (err) {
+      console.error('Folder read error:', err);
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+
+    const matching = [];
+    for (const name of filesInFolder) {
+      if (!name.toLowerCase().endsWith('.pdf')) continue;
+      if (!name.startsWith(prefix)) continue;
+      const fp = path.join(folder, name);
+      try {
+        const st = await fs.promises.stat(fp);
+        if (st.isFile()) matching.push({ fullPath: fp, mtime: st.mtime });
+      } catch (e) {
+        // ignore broken files
+      }
+    }
+
+    if (matching.length === 0) {
+      return res.status(404).json({ error: 'No matching PDF found.' });
+    }
+
+    // sort newest first (optional)
+    matching.sort((a, b) => b.mtime - a.mtime);
+
+    // merge into buffer
+    const filePaths = matching.map(m => m.fullPath);
+    const mergedBuffer = await mergePdfsToBuffer(filePaths);
+
+    // cache the Buffer (LRU)
+    cache.set(cacheKey, mergedBuffer);
+
+    // optional: persist merged to disk for faster subsequent reads (commented)
+    // const outPath = path.join(folder, `${prefix}_merged.pdf`);
+    // await fs.promises.writeFile(outPath, mergedBuffer);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${prefix}_merged.pdf"`);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+
+    return readableFromBuffer(mergedBuffer).pipe(res);
+
+  } catch (err) {
+    console.error('PDF merge error:', err);
+    if (!res.headersSent) {
+      const isInvalidPath = err.message === 'Invalid path';
+      return res.status(isInvalidPath ? 400 : 500).json({ error: isInvalidPath ? 'Invalid path' : 'Server error' });
+    }
+  }
+});
+
+
+
+
+
+
+
 
 
 
@@ -312,6 +439,29 @@ validationmodel.insertToComplete(souscripteurId, dossier, (err, result) => {
 
     res.status(201).json({ message: 'Insertion réussie', data: result });
   });
+});
+
+
+
+// PUT /api/souscripteur/update-enfants
+router.put('/update-enfants',verifyToken, async (req, res) => {
+  const { code, nbr_enfant } = req.body;
+
+  if (!code || nbr_enfant === undefined) {
+    return res.status(400).json({ success: false, message: 'Champs requis manquants (code, nbr_enfant)' });
+  }
+
+  try {
+    const updated = await sousModel.updateNbrEnfantsByCode(code, nbr_enfant);
+    if (updated) {
+      res.json({ success: true, message: 'Nombre d\'enfants mis à jour avec succès' });
+    } else {
+      res.status(404).json({ success: false, message: 'Souscripteur non trouvé avec ce code' });
+    }
+  } catch (err) {
+    console.error('Erreur updateNbrEnfantsByCode:', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur lors de la mise à jour' });
+  }
 });
 
 

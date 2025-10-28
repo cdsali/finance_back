@@ -1,0 +1,403 @@
+const { promise: db } = require('../config/db');
+
+//
+// ========================= WILAYA =========================
+//
+async function getAllWilayas() {
+  const [rows] = await db.query(`SELECT * FROM wilaya ORDER BY nom_wilaya`);
+  return rows;
+}
+
+async function getWilayaById(id) {
+  const [rows] = await db.query(`SELECT * FROM wilaya WHERE id_wilaya = ?`, [id]);
+  return rows[0] || null;
+}
+
+async function addWilaya(data) {
+  const { nom_wilaya } = data;
+  await db.query(`INSERT INTO wilaya (nom_wilaya) VALUES (?)`, [nom_wilaya]);
+}
+
+async function updateWilaya(id, data) {
+  const { nom_wilaya } = data;
+  await db.query(`UPDATE wilaya SET nom_wilaya = ? WHERE id_wilaya = ?`, [nom_wilaya, id]);
+}
+
+async function deleteWilaya(id) {
+  await db.query(`DELETE FROM wilaya WHERE id_wilaya = ?`, [id]);
+}
+
+//
+// ========================= PROJET =========================
+//
+async function getAllProjets() {
+  const [rows] = await db.query(`
+    SELECT p.*, w.nom_wilaya
+    FROM projet p
+    LEFT JOIN wilaya w ON p.id_wilaya = w.id_wilaya
+    ORDER BY p.id_projet DESC
+  `);
+  return rows;
+}
+
+async function getProjetById(id) {
+  const [rows] = await db.query(`
+    SELECT p.*, w.nom_wilaya 
+    FROM projet p 
+    LEFT JOIN wilaya w ON p.id_wilaya = w.id_wilaya 
+    WHERE id_projet = ?
+  `, [id]);
+  return rows[0] || null;
+}
+
+async function addProjet(data) {
+  const { nom_projet, localisation, id_wilaya, superficie, nbr_logements, date_lancement, statut, observation } = data;
+  await db.query(`
+    INSERT INTO projet (nom_projet, localisation, id_wilaya, superficie, nbr_logements, observation)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, [nom_projet, localisation, id_wilaya, superficie, nbr_logements, observation]);
+}
+
+async function updateProjet(id, data) {
+  const { nom_projet, localisation, id_wilaya, superficie, nbr_logements, date_lancement, statut, observation } = data;
+  await db.query(`
+    UPDATE projet 
+    SET nom_projet=?, localisation=?, id_wilaya=?, superficie=?, nbr_logements=?, date_lancement=?, statut=?, observation=? 
+    WHERE id_projet=?
+  `, [nom_projet, localisation, id_wilaya, superficie, nbr_logements, date_lancement, statut, observation, id]);
+}
+
+async function deleteProjet(id) {
+  await db.query(`DELETE FROM projet WHERE id_projet = ?`, [id]);
+}
+
+//
+// ========================= ENTREPRISE =========================
+//
+async function getAllEntreprises() {
+  const [rows] = await db.query(`SELECT * FROM entreprise ORDER BY nom_entreprise`);
+  return rows;
+}
+
+async function getEntrepriseById(id) {
+  const [rows] = await db.query(`SELECT * FROM entreprise WHERE id_entreprise = ?`, [id]);
+  return rows[0] || null;
+}
+
+async function addEntreprise(data) {
+  const { nom_entreprise, type_entreprise, rc, nif, adresse, contact } = data;
+  await db.query(`
+    INSERT INTO entreprise (nom_entreprise, type_entreprise, rc, nif, adresse, contact)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, [nom_entreprise, type_entreprise, rc, nif, adresse, contact]);
+}
+
+async function updateEntreprise(id, data) {
+  const { nom_entreprise, type_entreprise, rc, nif, adresse, contact } = data;
+  await db.query(`
+    UPDATE entreprise
+    SET nom_entreprise=?, type_entreprise=?, rc=?, nif=?, adresse=?, contact=?
+    WHERE id_entreprise=?
+  `, [nom_entreprise, type_entreprise, rc, nif, adresse, contact, id]);
+}
+
+async function deleteEntreprise(id) {
+  await db.query(`DELETE FROM entreprise WHERE id_entreprise=?`, [id]);
+}
+
+//
+// ========================= CONVENTION =========================
+//
+async function getAllConventions() {
+  const [rows] = await db.query(`
+    SELECT 
+      c.*, 
+      p.nom_projet, 
+      e.nom_entreprise 
+    FROM convention c
+    JOIN projet p ON c.id_projet = p.id_projet
+    JOIN entreprise e ON c.id_entreprise = e.id_entreprise
+    ORDER BY c.code_convention DESC
+  `);
+  return rows;
+}
+
+// addConvention - improved with try/catch + debug logging + return inserted id
+async function addConvention(data) {
+  const {
+    code_convention,
+    id_projet,
+    id_entreprise,
+    type_rubrique,
+    ap_projet,
+    ap_logt,
+    ap_vrd,
+    remuneration_aadl,
+    remuneration_bnh,
+    frais_gestion,
+    delai_realisation,
+    montant_initial,
+    date_demarrage,
+    is_resilie,
+    date_resiliation
+  } = data;
+
+  // Basic validation (optional but helpful)
+  if (!id_projet || !id_entreprise  || !code_convention) {
+    throw new Error("Validation error: id_projet and id_entreprise are required.");
+  }
+
+  const sql = `
+    INSERT INTO convention (
+    code_convention,id_projet, id_entreprise, type_rubrique, ap_projet, ap_logt, ap_vrd,
+      remuneration_aadl, remuneration_bnh, frais_gestion, delai_realisation,
+      montant_initial, date_demarrage, is_resilie, date_resiliation
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+  const params = [
+    code_convention,
+    id_projet,
+    id_entreprise,
+    type_rubrique || 'autre',
+    ap_projet || 0,
+    ap_logt || 0,
+    ap_vrd || 0,
+    remuneration_aadl || 0,
+    remuneration_bnh || 0,
+    frais_gestion || 0,
+    delai_realisation || null,
+    montant_initial || null,
+    date_demarrage || null,
+    // Convert boolean-ish values to 0/1 if needed
+    (typeof is_resilie === 'boolean') ? (is_resilie ? 1 : 0) : (is_resilie == 1 ? 1 : 0),
+    date_resiliation || null
+  ];
+
+  try {
+    console.log("SQL -> addConvention:", sql);
+    console.log("Params -> addConvention:", params);
+
+    const [result] = await db.query(sql, params);
+
+    // result.insertId available on success
+    return { success: true, insertedId: result.insertId };
+  } catch (err) {
+    // Log full error server-side
+    console.error("❌ addConvention error:", err);
+    // Re-throw so caller (route) can catch and return appropriate response
+    throw err;
+  }
+}
+
+
+async function updateConvention(id, data) {
+  const {code_convention,
+    id_projet, id_entreprise, type_rubrique, ap_projet, ap_logt, ap_vrd,
+    remuneration_aadl, remuneration_bnh, frais_gestion, delai_realisation,
+    montant_initial, date_demarrage, is_resilie, date_resiliation
+  } = data;
+
+  await db.query(`
+    UPDATE convention
+    SET code_convention= ?, id_projet=?, id_entreprise=?, type_rubrique=?, ap_projet=?, ap_logt=?, ap_vrd=?,
+        remuneration_aadl=?, remuneration_bnh=?, frais_gestion=?, delai_realisation=?, 
+        montant_initial=?, date_demarrage=?, is_resilie=?, date_resiliation=?
+    WHERE code_convention=?
+  `, [
+    code_convention,id_projet, id_entreprise, type_rubrique, ap_projet, ap_logt, ap_vrd,
+    remuneration_aadl, remuneration_bnh, frais_gestion, delai_realisation,
+    montant_initial, date_demarrage, is_resilie, date_resiliation, id
+  ]);
+}
+
+async function deleteConvention(id) {
+  await db.query(`DELETE FROM convention WHERE code_convention=?`, [id]);
+}
+
+//
+// ========================= REALISATION =========================
+//
+
+// ========================= REALISATION - GET ALL =========================
+async function getAllRealisations() {
+  const [rows] = await db.query(`
+    SELECT 
+      r.*, 
+      c.code_convention,
+      p.nom_projet,
+      e.nom_entreprise
+    FROM realisation r
+    JOIN convention c ON r.code_convention = c.code_convention
+    JOIN projet p ON c.id_projet = p.id_projet
+    JOIN entreprise e ON c.id_entreprise = e.id_entreprise
+    ORDER BY c.code_convention DESC
+  `);
+  return rows;
+}
+
+
+async function getRealisationsByConvention(code_convention) {
+  const [rows] = await db.query(`
+    SELECT * FROM realisation WHERE code_convention = ? ORDER BY date_arret_situation DESC
+  `, [code_convention]);
+  return rows;
+}
+
+async function addRealisation(data) {
+  const {
+    code_convention,
+    nature_situation,
+    montant_engage,
+    montant_net_ttc,
+    montant_net_ht,
+    montant_paye_bnh,
+    date_arret_situation,
+    date_depot_entreprise,
+    date_depot_bnh,
+    consommation_moy_mensuelle,
+    taux_consommation_mensuel,
+    observation
+  } = data;
+
+  await db.query(`
+    INSERT INTO realisation (
+      code_convention, nature_situation, montant_engage, montant_net_ttc, montant_net_ht,
+      montant_paye_bnh, date_arret_situation, date_depot_entreprise, date_depot_bnh,
+      consommation_moy_mensuelle, taux_consommation_mensuel, observation
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    code_convention, nature_situation, montant_engage, montant_net_ttc, montant_net_ht,
+    montant_paye_bnh, date_arret_situation, date_depot_entreprise, date_depot_bnh,
+    consommation_moy_mensuelle, taux_consommation_mensuel, observation
+  ]);
+}
+
+async function deleteRealisation(code_convention, nature_situation) {
+  await db.query(`
+    DELETE FROM realisation WHERE code_convention = ? AND nature_situation = ?
+  `, [code_convention, nature_situation]);
+}
+
+
+async function updateRealisation(code_convention, nature_situation, data) {
+  const {
+    montant_engage,
+    montant_net_ttc,
+    montant_net_ht,
+    montant_paye_bnh,
+    date_arret_situation,
+    date_depot_entreprise,
+    date_depot_bnh,
+    consommation_moy_mensuelle,
+    taux_consommation_mensuel,
+    observation
+  } = data;
+
+  await db.query(`
+    UPDATE realisation
+    SET 
+      montant_engage = ?,
+      montant_net_ttc = ?,
+      montant_net_ht = ?,
+      montant_paye_bnh = ?,
+      date_arret_situation = ?,
+      date_depot_entreprise = ?,
+      date_depot_bnh = ?,
+      consommation_moy_mensuelle = ?,
+      taux_consommation_mensuel = ?,
+      observation = ?
+    WHERE code_convention = ? AND nature_situation = ?
+  `, [
+    montant_engage,
+    montant_net_ttc,
+    montant_net_ht,
+    montant_paye_bnh,
+    date_arret_situation,
+    date_depot_entreprise,
+    date_depot_bnh,
+    consommation_moy_mensuelle,
+    taux_consommation_mensuel,
+    observation,
+    code_convention,
+    nature_situation
+  ]);
+}
+
+
+//
+// ========================= ODS =========================
+//
+async function getOdsByConvention(code_convention) {
+  const [rows] = await db.query(`
+    SELECT * FROM ods WHERE code_convention = ? ORDER BY date_ods DESC
+  `, [code_convention]);
+  return rows;
+}
+
+async function addOds(data) {
+  const { code_convention, description, date_ods } = data;
+  await db.query(`
+    INSERT INTO ods (code_convention, description, date_ods)
+    VALUES (?, ?, ?)
+  `, [code_convention, description, date_ods]);
+}
+
+//
+// ========================= AVENANT =========================
+//
+async function getAvenantsByConvention(code_convention) {
+  const [rows] = await db.query(`
+    SELECT a.*, o.description AS ods_description
+    FROM avenant a
+    LEFT JOIN ods o ON a.code_ods = o.code_ods
+    WHERE a.code_convention = ?
+  `, [code_convention]);
+  return rows;
+}
+
+async function addAvenant(data) {
+  const { code_convention, code_ods, montant_avenant, description } = data;
+  await db.query(`
+    INSERT INTO avenant (code_convention, code_ods, montant_avenant, description)
+    VALUES (?, ?, ?, ?)
+  `, [code_convention, code_ods, montant_avenant, description]);
+}
+
+//
+// ========================= DASHBOARD =========================
+//
+async function getDashboardStats() {
+  const [rows] = await db.query(`
+    SELECT 
+      (SELECT COUNT(*) FROM projet) AS total_projets,
+      (SELECT COUNT(*) FROM entreprise) AS total_entreprises,
+      (SELECT COUNT(*) FROM convention) AS total_conventions,
+      (SELECT SUM(montant_paye_bnh) FROM realisation) AS total_paye_bnh,
+      (SELECT SUM(montant_initial) FROM convention) AS total_montant_initial
+  `);
+  return rows[0];
+}
+
+//
+// ========================= EXPORT =========================
+//
+module.exports = {
+  // Wilaya
+  getAllWilayas, getWilayaById, addWilaya, updateWilaya, deleteWilaya,
+  // Projet
+  getAllProjets, getProjetById, addProjet, updateProjet, deleteProjet,
+  // Entreprise
+  getAllEntreprises, getEntrepriseById, addEntreprise, updateEntreprise, deleteEntreprise,
+  // Convention
+  getAllConventions, addConvention, updateConvention, deleteConvention,
+  // Réalisation
+  getRealisationsByConvention, addRealisation, deleteRealisation,getAllRealisations,updateRealisation,
+  // ODS
+  getOdsByConvention, addOds,
+  // Avenant
+  getAvenantsByConvention, addAvenant,
+  // Dashboard
+  getDashboardStats,
+};

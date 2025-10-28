@@ -58,7 +58,27 @@ router.post('/login', async function (req, res) {
 });
 
 
-  
+  router.post('/update-password', verifyToken, async function (req, res) {
+    const { newPassword } = req.body;
+    const userId = req.user.userId; // assuming verifyToken sets req.user
+
+    if (!newPassword) {
+        return res.status(400).json({ success: false, message: 'New password is required' });
+    }
+
+    fn.UpdatePassword(userId, newPassword, function (err, success) {
+        if (err) {
+            return res.status(500).json({ success: false, message: 'Error updating password', error: err });
+        }
+
+        if (!success) {
+            return res.status(404).json({ success: false, message: 'User not found or password not updated' });
+        }
+
+        res.json({ success: true, message: 'Password updated successfully' });
+    });
+});
+
   
 
 

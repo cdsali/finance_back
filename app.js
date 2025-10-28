@@ -20,7 +20,7 @@ var siteRouter=require('./routes/site');
 var assign=require('./routes/traitement/agent_assignments');
 
 var sous=require('./routes/traitement/souscripteurs');
-
+var finance=require('./routes/finance');
 
 
 const cors = require('cors');
@@ -63,7 +63,7 @@ app.use('/sites',siteRouter);
 
 app.use('/assign',assign);
 app.use('/souscripteurs',sous);
-
+app.use('/finance',finance);
 
 
 app.use(function(req, res, next) {
@@ -77,7 +77,7 @@ app.use(function(req, res, next) {
 
 
 // Start the server
-app.listen(process.env.PORT || 3602, () => {
+app.listen(process.env.PORT || 3602, '0.0.0.0', () => {
   console.log("Server running on port 3600");
 });
 

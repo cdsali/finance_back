@@ -54,7 +54,8 @@ async function getSouscripteurStats() {
       (SELECT COUNT(*) FROM souscripteurs) AS total,
       (SELECT COUNT(*) FROM souscripteurs WHERE assign = 1) AS assigned,
       (SELECT COUNT(*) FROM agent_validations WHERE decision = 'valide') AS favorable,
-      (SELECT COUNT(*) FROM agent_validations WHERE decision = 'rejete') AS defavorable
+      (SELECT COUNT(*) FROM agent_validations WHERE decision = 'rejete') AS defavorable,
+      (SELECT COUNT(*) FROM agent_validations WHERE decision = 'complete') AS complete
   `);
 
   const { total, assigned, favorable, defavorable } = rows[0];
@@ -70,6 +71,48 @@ async function getSouscripteurStats() {
     restants,
   };
 }
+
+
+
+
+async function getSouscripteurStatsDr(id) {
+  const [rows] = await db.query(`
+    SELECT
+      (SELECT COUNT(*) FROM souscripteurs) AS total,
+      (SELECT COUNT(*) FROM souscripteurs WHERE assign = 1) AS assigned,
+      (SELECT COUNT(*) 
+         FROM agent_validations av 
+         JOIN users u ON av.agent_id = u.id 
+         WHERE av.decision = 'valide' AND u.id = ?) AS favorable,
+      (SELECT COUNT(*) 
+         FROM agent_validations av 
+         JOIN users u ON av.agent_id = u.id 
+         WHERE av.decision = 'rejete' AND u.id = ?) AS defavorable,
+      (SELECT COUNT(*) 
+         FROM agent_validations av 
+         JOIN users u ON av.agent_id = u.id 
+         WHERE av.decision = 'complete' AND u.id = ?) AS complete
+  `, [id, id, id]);
+
+  const { total, assigned, favorable, defavorable } = rows[0];
+  const traites = favorable + defavorable;
+  const restants = total - traites;
+
+  return {
+    total,
+    assigned,
+    favorable,
+    defavorable,
+    traites,
+    restants,
+  };
+}
+
+
+
+
+
+
 
 async function getTraitesParJourDerniers10Jours() {
   const query = `
@@ -94,12 +137,28 @@ ORDER BY jour ASC;
   }
 }
 
+
+
+async function updateNbrEnfantsByCode(code, nbr_enfant) {
+  const query = `
+    UPDATE souscripteurs 
+    SET nbr_enfant = ? 
+    WHERE code = ?
+  `;
+
+  const [result] = await db.query(query, [nbr_enfant, code]);
+  return result.affectedRows > 0;
+}
+
+
+
 module.exports = {
  
   GetSousById,
   InsertAddress,
   GetAddressesBySouscripteurId,
   getSouscripteurStats,
-  getTraitesParJourDerniers10Jours
+  getTraitesParJourDerniers10Jours,
+  updateNbrEnfantsByCode
 
   };
