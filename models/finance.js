@@ -225,6 +225,7 @@ async function getAllRealisations() {
     SELECT 
       r.*, 
       c.code_convention,
+      c.type_rubrique,
       p.nom_projet,
       e.nom_entreprise
     FROM realisation r
@@ -380,6 +381,89 @@ async function getDashboardStats() {
   return rows[0];
 }
 
+
+
+
+async function getRecapData() {
+  const [rows] = await db.query(`
+  SELECT
+  w.id_wilaya AS indic_wilaya,
+  w.nom_wilaya AS wilaya,
+  p.id_projet AS code_projet,
+  p.nom_projet,
+  p.localisation,
+
+  -- AP prévus
+  SUM(c.ap_logt) AS ap_logement,
+  SUM(c.ap_vrd) AS ap_vrd,
+
+  -- Engagements cumulés
+  SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.montant_engage ELSE 0 END) AS engagement_logement,
+  SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.montant_engage ELSE 0 END) AS engagement_vrd,
+
+  -- Paiements cumulés
+  SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.total_paiement ELSE 0 END) AS paiement_logement,
+  SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.total_paiement ELSE 0 END) AS paiement_vrd,
+
+  -- Paiements de l’exercice ANTERIEUR
+  SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.paiement_exercice_anterieur ELSE 0 END) AS paiement_exercice_anterieur_logement,
+  SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.paiement_exercice_anterieur ELSE 0 END) AS paiement_exercice_anterieur_vrd,
+
+  -- Paiements de l’exercice du MOIS
+  SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.paiement_exercice_mois ELSE 0 END) AS paiement_exercice_mois_logement,
+  SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.paiement_exercice_mois ELSE 0 END) AS paiement_exercice_mois_vrd,
+
+  -- Totaux dérivés
+  (SUM(c.ap_logt + c.ap_vrd) - SUM(r.total_paiement)) AS solde_ap_paiement,
+  (SUM(c.ap_logt + c.ap_vrd) - SUM(r.montant_engage)) AS solde_ap_engagement,
+
+  -- Taux
+  ROUND((SUM(r.montant_engage) / NULLIF(SUM(c.ap_logt + c.ap_vrd), 0)) * 100, 2) AS taux_engagement,
+  ROUND((SUM(r.total_paiement) / NULLIF(SUM(c.ap_logt + c.ap_vrd), 0)) * 100, 2) AS taux_paiement
+
+FROM projet p
+LEFT JOIN wilaya w ON w.id_wilaya = p.id_wilaya
+LEFT JOIN convention c ON c.id_projet = p.id_projet
+LEFT JOIN (
+    SELECT
+      code_convention,
+      SUM(montant_engage) AS montant_engage,
+      SUM(montant_paye_bnh) AS total_paiement,
+
+      -- Paiement exercice antérieur (avant le mois courant)
+      SUM(
+        CASE 
+          WHEN YEAR(date_arret_situation) = YEAR(CURDATE()) 
+            AND MONTH(date_arret_situation) < MONTH(CURDATE()) 
+          THEN montant_paye_bnh ELSE 0 
+        END
+      ) AS paiement_exercice_anterieur,
+
+      -- Paiement exercice du mois courant
+      SUM(
+        CASE 
+          WHEN YEAR(date_arret_situation) = YEAR(CURDATE()) 
+            AND MONTH(date_arret_situation) = MONTH(CURDATE()) 
+          THEN montant_paye_bnh ELSE 0 
+        END
+      ) AS paiement_exercice_mois
+
+    FROM realisation
+    GROUP BY code_convention
+) r ON r.code_convention = c.code_convention
+
+GROUP BY w.id_wilaya, p.id_projet
+ORDER BY w.nom_wilaya, p.nom_projet;
+
+
+  `);
+
+  return rows;
+}
+
+
+
+
 //
 // ========================= EXPORT =========================
 //
@@ -400,4 +484,5 @@ module.exports = {
   getAvenantsByConvention, addAvenant,
   // Dashboard
   getDashboardStats,
+  getRecapData
 };

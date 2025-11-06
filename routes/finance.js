@@ -239,7 +239,7 @@ router.put("/realisations/:code_convention/:nature_situation",verifyToken, async
 //
 // ========================= ODS =========================
 //
-router.get('/ods/:code_convention', verifyToken, async (req, res) => {
+router.get('/ods/convention/:code_convention', verifyToken, async (req, res) => {
   try {
     const data = await model.getOdsByConvention(req.params.code_convention);
     res.json({ success: true, data });
@@ -260,7 +260,7 @@ router.post('/ods', verifyToken, async (req, res) => {
 //
 // ========================= AVENANT =========================
 //
-router.get('/avenants/:code_convention', verifyToken, async (req, res) => {
+router.get('/avenants/convention/:code_convention', verifyToken, async (req, res) => {
   try {
     const data = await model.getAvenantsByConvention(req.params.code_convention);
     res.json({ success: true, data });
@@ -289,6 +289,21 @@ router.get('/dashboard', verifyToken, async (req, res) => {
     res.status(500).json({ success: false, message: 'Error fetching dashboard stats', error: err.message });
   }
 });
+
+
+//
+// ========================= RECAP FINANCIER =========================
+//
+router.get('/recap', verifyToken, async (req, res) => {
+  try {
+    const data = await model.getRecapData();
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('❌ Error fetching recap data:', err.message);
+    res.status(500).json({ success: false, message: 'Error fetching recap data', error: err.message });
+  }
+});
+
 
 //
 // ========================= EXPORT =========================
