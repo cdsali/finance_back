@@ -8,7 +8,9 @@ const { verifyToken } = require('../middlewares/authmiddleware'); // optional
 //
 router.get('/wilayas', verifyToken, async (req, res) => {
   try {
-    const data = await model.getAllWilayas();
+    const dr=req.user?.userDr;
+console.log("DR in wilayas:",dr);
+    const data = await model.getAllWilayas(dr);
     res.json({ success: true, data });
   } catch (err) {
     console.error('❌ Error fetching wilayas:', err.message);
@@ -57,7 +59,9 @@ router.delete('/wilayas/:id', verifyToken, async (req, res) => {
 //
 router.get('/projets', verifyToken, async (req, res) => {
   try {
-    const data = await model.getAllProjets();
+
+    const dr=req.user?.userDr;
+    const data = await model.getAllProjets(dr);
     res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error fetching projets', error: err.message });
@@ -75,6 +79,15 @@ router.get('/projets/:id', verifyToken, async (req, res) => {
 
 router.post('/projets', verifyToken, async (req, res) => {
   try {
+    const dr=req.user?.userDr;
+    console.log("DR in add projet:",req.body);
+
+     const data=await model.getAllDrOfWilaya(req.body.id_wilaya);
+     console.log("Data of wilaya:",data);
+    if(data.dr!==dr){
+      return res.status(403).json({ success: false, message: 'Unauthorized to add projet for this wilaya' });
+    } 
+
     await model.addProjet(req.body);
     res.json({ success: true, message: 'Projet added successfully' });
   } catch (err) {
@@ -84,6 +97,8 @@ router.post('/projets', verifyToken, async (req, res) => {
 
 router.put('/projets/:id', verifyToken, async (req, res) => {
   try {
+ 
+
     await model.updateProjet(req.params.id, req.body);
     res.json({ success: true, message: 'Projet updated successfully' });
   } catch (err) {
@@ -93,6 +108,8 @@ router.put('/projets/:id', verifyToken, async (req, res) => {
 
 router.delete('/projets/:id', verifyToken, async (req, res) => {
   try {
+
+     
     await model.deleteProjet(req.params.id);
     res.json({ success: true, message: 'Projet deleted successfully' });
   } catch (err) {
@@ -153,7 +170,11 @@ router.delete('/entreprises/:id', verifyToken, async (req, res) => {
 //
 router.get('/conventions', verifyToken, async (req, res) => {
   try {
-    const data = await model.getAllConventions();
+    const dr=req.user?.userDr;
+    console.log("DR in conventions:",dr);
+    const data = await model.getAllConventions(dr);
+
+
     res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error fetching conventions', error: err.message });
@@ -193,7 +214,9 @@ router.delete('/conventions/:id', verifyToken, async (req, res) => {
 
 router.get("/realisations",verifyToken, async (req, res) => {
   try {
-    const data = await model.getAllRealisations();
+    const dr=req.user?.userDr;
+
+    const data = await model.getAllRealisations(dr);
     res.json(data);
   } catch (err) {
     console.error("❌ Error fetching réalisations:", err);
@@ -283,7 +306,8 @@ router.post('/avenants', verifyToken, async (req, res) => {
 //
 router.get('/dashboard', verifyToken, async (req, res) => {
   try {
-    const data = await model.getDashboardStats();
+    const dr=req.user?.userDr;
+    const data = await model.getDashboardStats(dr);
     res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error fetching dashboard stats', error: err.message });
@@ -296,7 +320,8 @@ router.get('/dashboard', verifyToken, async (req, res) => {
 //
 router.get('/recap', verifyToken, async (req, res) => {
   try {
-    const data = await model.getRecapData();
+    const dr=req.user?.userDr;
+    const data = await model.getRecapData(dr);
     res.json({ success: true, data });
   } catch (err) {
     console.error('❌ Error fetching recap data:', err.message);

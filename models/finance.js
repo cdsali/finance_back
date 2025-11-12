@@ -3,10 +3,21 @@ const { promise: db } = require('../config/db');
 //
 // ========================= WILAYA =========================
 //
-async function getAllWilayas() {
-  const [rows] = await db.query(`SELECT * FROM wilaya ORDER BY nom_wilaya`);
+async function getAllWilayas(dr) {
+  let query = `SELECT * FROM wilaya`;
+  const params = [];
+
+  if (dr && dr !== 0) {
+    query += ` WHERE dr = ?`;
+    params.push(dr);
+  }
+
+  query += ` ORDER BY nom_wilaya`;
+
+  const [rows] = await db.query(query, params);
   return rows;
 }
+
 
 async function getWilayaById(id) {
   const [rows] = await db.query(`SELECT * FROM wilaya WHERE id_wilaya = ?`, [id]);
@@ -27,16 +38,33 @@ async function deleteWilaya(id) {
   await db.query(`DELETE FROM wilaya WHERE id_wilaya = ?`, [id]);
 }
 
+async function getAllDrOfWilaya(wilaya_id) {
+  const [rows] = await db.query(`SELECT dr FROM wilaya where code_wilaya= ?`,[wilaya_id]);
+  return rows[0];
+}
+
 //
 // ========================= PROJET =========================
 //
-async function getAllProjets() {
-  const [rows] = await db.query(`
+async function getAllProjets(dr) {
+  
+
+  let query = `
     SELECT p.*, w.nom_wilaya
     FROM projet p
     LEFT JOIN wilaya w ON p.id_wilaya = w.id_wilaya
-    ORDER BY p.id_projet DESC
-  `);
+
+    
+  `;
+  const params = [];
+
+  if(dr && dr !== 0) {   
+   query += ` WHERE w.dr = ? `;
+   params.push(dr);
+
+  }
+
+  const [rows] = await db.query(query, params);
   return rows;
 }
 
@@ -108,19 +136,33 @@ async function deleteEntreprise(id) {
 //
 // ========================= CONVENTION =========================
 //
-async function getAllConventions() {
-  const [rows] = await db.query(`
+async function getAllConventions(dr) {
+  let query = `
     SELECT 
       c.*, 
       p.nom_projet, 
-      e.nom_entreprise 
+      e.nom_entreprise,
+      w.nom_wilaya,
+      w.dr
     FROM convention c
     JOIN projet p ON c.id_projet = p.id_projet
     JOIN entreprise e ON c.id_entreprise = e.id_entreprise
-    ORDER BY c.code_convention DESC
-  `);
+    JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+  `;
+
+  const params = [];
+
+  if (dr && dr !== 0) {  
+    query += ` WHERE w.dr = ? `;
+    params.push(dr);
+  }
+
+  query += ` ORDER BY c.code_convention DESC`;
+
+  const [rows] = await db.query(query, params);
   return rows;
 }
+
 
 // addConvention - improved with try/catch + debug logging + return inserted id
 async function addConvention(data) {
@@ -220,22 +262,36 @@ async function deleteConvention(id) {
 //
 
 // ========================= REALISATION - GET ALL =========================
-async function getAllRealisations() {
-  const [rows] = await db.query(`
+async function getAllRealisations(dr) {
+  let query = `
     SELECT 
       r.*, 
       c.code_convention,
       c.type_rubrique,
       p.nom_projet,
-      e.nom_entreprise
+      e.nom_entreprise,
+      w.nom_wilaya,
+      w.dr
     FROM realisation r
     JOIN convention c ON r.code_convention = c.code_convention
     JOIN projet p ON c.id_projet = p.id_projet
     JOIN entreprise e ON c.id_entreprise = e.id_entreprise
-    ORDER BY c.code_convention DESC
-  `);
+    JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+  `;
+
+  const params = [];
+
+  if (dr && dr !== 0) {
+    query += ` WHERE w.dr = ?`;
+    params.push(dr);
+  }
+
+  query += ` ORDER BY c.code_convention DESC`;
+
+  const [rows] = await db.query(query, params);
   return rows;
 }
+
 
 
 async function getRealisationsByConvention(code_convention) {
@@ -368,7 +424,7 @@ async function addAvenant(data) {
 
 //
 // ========================= DASHBOARD =========================
-//
+/*
 async function getDashboardStats() {
   const [rows] = await db.query(`
     SELECT 
@@ -380,88 +436,173 @@ async function getDashboardStats() {
   `);
   return rows[0];
 }
+*/
 
 
 
-
-async function getRecapData() {
-  const [rows] = await db.query(`
-  SELECT
-  w.id_wilaya AS indic_wilaya,
-  w.nom_wilaya AS wilaya,
-  p.id_projet AS code_projet,
-  p.nom_projet,
-  p.localisation,
-
-  -- AP prévus
-  SUM(c.ap_logt) AS ap_logement,
-  SUM(c.ap_vrd) AS ap_vrd,
-
-  -- Engagements cumulés
-  SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.montant_engage ELSE 0 END) AS engagement_logement,
-  SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.montant_engage ELSE 0 END) AS engagement_vrd,
-
-  -- Paiements cumulés
-  SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.total_paiement ELSE 0 END) AS paiement_logement,
-  SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.total_paiement ELSE 0 END) AS paiement_vrd,
-
-  -- Paiements de l’exercice ANTERIEUR
-  SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.paiement_exercice_anterieur ELSE 0 END) AS paiement_exercice_anterieur_logement,
-  SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.paiement_exercice_anterieur ELSE 0 END) AS paiement_exercice_anterieur_vrd,
-
-  -- Paiements de l’exercice du MOIS
-  SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.paiement_exercice_mois ELSE 0 END) AS paiement_exercice_mois_logement,
-  SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.paiement_exercice_mois ELSE 0 END) AS paiement_exercice_mois_vrd,
-
-  -- Totaux dérivés
-  (SUM(c.ap_logt + c.ap_vrd) - SUM(r.total_paiement)) AS solde_ap_paiement,
-  (SUM(c.ap_logt + c.ap_vrd) - SUM(r.montant_engage)) AS solde_ap_engagement,
-
-  -- Taux
-  ROUND((SUM(r.montant_engage) / NULLIF(SUM(c.ap_logt + c.ap_vrd), 0)) * 100, 2) AS taux_engagement,
-  ROUND((SUM(r.total_paiement) / NULLIF(SUM(c.ap_logt + c.ap_vrd), 0)) * 100, 2) AS taux_paiement
-
-FROM projet p
-LEFT JOIN wilaya w ON w.id_wilaya = p.id_wilaya
-LEFT JOIN convention c ON c.id_projet = p.id_projet
-LEFT JOIN (
+async function getRecapData(dr) {
+  let query = `
     SELECT
-      code_convention,
-      SUM(montant_engage) AS montant_engage,
-      SUM(montant_paye_bnh) AS total_paiement,
+      w.id_wilaya AS indic_wilaya,
+      w.nom_wilaya AS wilaya,
+      p.id_projet AS code_projet,
+      p.nom_projet,
+      p.localisation,
 
-      -- Paiement exercice antérieur (avant le mois courant)
-      SUM(
-        CASE 
-          WHEN YEAR(date_arret_situation) = YEAR(CURDATE()) 
-            AND MONTH(date_arret_situation) < MONTH(CURDATE()) 
-          THEN montant_paye_bnh ELSE 0 
-        END
-      ) AS paiement_exercice_anterieur,
+      -- AP prévus
+      SUM(c.ap_logt) AS ap_logement,
+      SUM(c.ap_vrd) AS ap_vrd,
 
-      -- Paiement exercice du mois courant
-      SUM(
-        CASE 
-          WHEN YEAR(date_arret_situation) = YEAR(CURDATE()) 
-            AND MONTH(date_arret_situation) = MONTH(CURDATE()) 
-          THEN montant_paye_bnh ELSE 0 
-        END
-      ) AS paiement_exercice_mois
+      -- Engagements cumulés
+      SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.montant_engage ELSE 0 END) AS engagement_logement,
+      SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.montant_engage ELSE 0 END) AS engagement_vrd,
 
-    FROM realisation
-    GROUP BY code_convention
-) r ON r.code_convention = c.code_convention
+      -- Paiements cumulés
+      SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.total_paiement ELSE 0 END) AS paiement_logement,
+      SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.total_paiement ELSE 0 END) AS paiement_vrd,
 
-GROUP BY w.id_wilaya, p.id_projet
-ORDER BY w.nom_wilaya, p.nom_projet;
+      -- Paiements de l’exercice ANTERIEUR
+      SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.paiement_exercice_anterieur ELSE 0 END) AS paiement_exercice_anterieur_logement,
+      SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.paiement_exercice_anterieur ELSE 0 END) AS paiement_exercice_anterieur_vrd,
 
+      -- Paiements de l’exercice du MOIS
+      SUM(CASE WHEN c.type_rubrique = 'logement' THEN r.paiement_exercice_mois ELSE 0 END) AS paiement_exercice_mois_logement,
+      SUM(CASE WHEN c.type_rubrique = 'vrd' THEN r.paiement_exercice_mois ELSE 0 END) AS paiement_exercice_mois_vrd,
 
-  `);
+      -- Totaux dérivés
+      (SUM(c.ap_logt + c.ap_vrd) - SUM(r.total_paiement)) AS solde_ap_paiement,
+      (SUM(c.ap_logt + c.ap_vrd) - SUM(r.montant_engage)) AS solde_ap_engagement,
 
+      -- Taux
+      ROUND((SUM(r.montant_engage) / NULLIF(SUM(c.ap_logt + c.ap_vrd), 0)) * 100, 2) AS taux_engagement,
+      ROUND((SUM(r.total_paiement) / NULLIF(SUM(c.ap_logt + c.ap_vrd), 0)) * 100, 2) AS taux_paiement,
+
+  
+      SUM(r.total_paiement) AS Paiement_Cumule
+
+       
+    FROM projet p
+    LEFT JOIN wilaya w ON w.id_wilaya = p.id_wilaya
+    LEFT JOIN convention c ON c.id_projet = p.id_projet
+    LEFT JOIN (
+        SELECT
+          code_convention,
+          SUM(montant_engage) AS montant_engage,
+          SUM(montant_paye_bnh) AS total_paiement,
+
+          -- Paiement exercice antérieur (avant le mois courant)
+          SUM(
+            CASE 
+              WHEN YEAR(date_arret_situation) = YEAR(CURDATE()) 
+                AND MONTH(date_arret_situation) < MONTH(CURDATE()) 
+              THEN montant_paye_bnh ELSE 0 
+            END
+          ) AS paiement_exercice_anterieur,
+
+          -- Paiement exercice du mois courant
+          SUM(
+            CASE 
+              WHEN YEAR(date_arret_situation) = YEAR(CURDATE()) 
+                AND MONTH(date_arret_situation) = MONTH(CURDATE()) 
+              THEN montant_paye_bnh ELSE 0 
+            END
+          ) AS paiement_exercice_mois
+
+        FROM realisation
+        GROUP BY code_convention
+    ) r ON r.code_convention = c.code_convention
+  `;
+
+  const params = [];
+
+  if (dr && dr !== 0) {
+    query += ` WHERE w.dr = ?`;
+    params.push(dr);
+  }
+
+  query += `
+    GROUP BY w.id_wilaya, p.id_projet
+    ORDER BY w.nom_wilaya, p.nom_projet
+  `;
+
+  const [rows] = await db.query(query, params);
   return rows;
 }
 
 
+async function getDashboardStats(dr) {
+  let query = `
+    SELECT 
+      -- Total counts
+      (SELECT COUNT(*) FROM projet p 
+        JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+        ${dr && dr !== 0 ? 'WHERE w.dr = ?' : ''}) AS total_projets,
+
+      (SELECT COUNT(*) FROM entreprise) AS total_entreprises,
+
+      (SELECT COUNT(*) FROM convention c
+        JOIN projet p ON c.id_projet = p.id_projet
+        JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+        ${dr && dr !== 0 ? 'WHERE w.dr = ?' : ''}) AS total_conventions,
+
+      (SELECT COUNT(*) FROM ods o
+        JOIN convention c ON o.code_convention = c.code_convention
+        JOIN projet p ON c.id_projet = p.id_projet
+        JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+        ${dr && dr !== 0 ? 'WHERE w.dr = ?' : ''}) AS total_ods,
+
+      (SELECT COUNT(*) FROM avenant a
+        JOIN convention c ON a.code_convention = c.code_convention
+        JOIN projet p ON c.id_projet = p.id_projet
+        JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+        ${dr && dr !== 0 ? 'WHERE w.dr = ?' : ''}) AS total_avenants,
+
+      -- Financial totals
+      (SELECT SUM(montant_initial) 
+        FROM convention c
+        JOIN projet p ON c.id_projet = p.id_projet
+        JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+        ${dr && dr !== 0 ? 'WHERE w.dr = ?' : ''}) AS montant_total_initial,
+
+      (SELECT SUM(r.montant_paye_bnh)
+        FROM realisation r
+        JOIN convention c ON r.code_convention = c.code_convention
+        JOIN projet p ON c.id_projet = p.id_projet
+        JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+        ${dr && dr !== 0 ? 'WHERE w.dr = ?' : ''}) AS montant_total_realise,
+
+      -- Execution rate (%)
+      ROUND((
+        (SELECT SUM(r.montant_paye_bnh)
+          FROM realisation r
+          JOIN convention c ON r.code_convention = c.code_convention
+          JOIN projet p ON c.id_projet = p.id_projet
+          JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+          ${dr && dr !== 0 ? 'WHERE w.dr = ?' : ''})
+        /
+        NULLIF(
+          (SELECT SUM(c.montant_initial)
+            FROM convention c
+            JOIN projet p ON c.id_projet = p.id_projet
+            JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+            ${dr && dr !== 0 ? 'WHERE w.dr = ?' : ''}),
+        0)
+      ) * 100, 2) AS taux_execution_global,
+
+      -- Completed projects (example: statut = 'achevé')
+      (SELECT COUNT(*) FROM projet p
+        JOIN wilaya w ON p.id_wilaya = w.code_wilaya
+        ${dr && dr !== 0 ? "WHERE w.dr = ? AND p.statut = 'achevé'" : "WHERE p.statut = 'achevé'"}) AS projets_acheves
+  `;
+
+  // Collect parameters (each ? needs one dr value)
+  const params = dr && dr !== 0
+    ? [dr, dr, dr, dr, dr, dr, dr, dr, dr, dr]  // one per ?
+    : [];
+
+  const [rows] = await db.query(query, params);
+  return rows[0];
+}
 
 
 //
@@ -469,7 +610,7 @@ ORDER BY w.nom_wilaya, p.nom_projet;
 //
 module.exports = {
   // Wilaya
-  getAllWilayas, getWilayaById, addWilaya, updateWilaya, deleteWilaya,
+  getAllWilayas, getWilayaById, addWilaya, updateWilaya, deleteWilaya,getAllDrOfWilaya,
   // Projet
   getAllProjets, getProjetById, addProjet, updateProjet, deleteProjet,
   // Entreprise
